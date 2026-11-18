@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="auto">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<title>记账</title>
+<meta name="description" content="个人日常支出记录与月度统计" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="default" />
+<meta name="apple-mobile-web-app-title" content="记账" />
+<meta name="format-detection" content="telephone=no,email=no,address=no" />
+<meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)" />
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)" />
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png" />
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<div class="app" id="app">
+
+  <!-- 顶部提示条 -->
+  <div class="banner" id="updateBar" hidden>
+    <span>有新版本可用</span>
+    <button type="button" class="banner-btn" id="updateBtn">刷新</button>
+  </div>
+  <div class="banner banner-warn" id="backupBar" hidden>
+    <span id="backupText">很久没备份了，数据只在这台手机上</span>
+    <button type="button" class="banner-btn" id="backupNow">去备份</button>
+  </div>
+
+  <main class="views" id="views">
+
+    <!-- ========== 记账 ========== -->
+    <section class="view view-add" id="view-add" data-view="add">
+      <div class="add-scroll">
+        <div class="date-row">
+          <button type="button" class="date-pill" id="datePill">今天 · 11月18日</button>
+          <button type="button" class="link-btn" id="cancelEditBtn" hidden>取消编辑</button>
+        </div>
+
+        <div class="amount-box">
+          <span class="cny">¥</span>
+          <span class="amount" id="amountText">0.00</span>
+          <span class="caret" id="caret"></span>
+        </div>
+
+        <div class="cat-grid" id="catGrid"></div>
+
+        <div class="chip-row" id="methodRow"></div>
+
+        <div class="note-row">
+          <input id="noteInput" type="text" placeholder="备注（可选）" maxlength="40" enterkeyhint="done" autocomplete="off" />
+        </div>
+
+        <div class="add-foot" id="addFoot"></div>
+      </div>
+
+      <div class="keypad" id="keypad">
+        <div class="keys" id="keys">
+          <button type="button" class="key" data-k="1">1</button>
+          <button type="button" class="key" data-k="2">2</button>
+          <button type="button" class="key" data-k="3">3</button>
+          <button type="button" class="key" data-k="4">4</button>
+          <button type="button" class="key" data-k="5">5</button>
+          <button type="button" class="key" data-k="6">6</button>
+          <button type="button" class="key" data-k="7">7</button>
+          <button type="button" class="key" data-k="8">8</button>
+          <button type="button" class="key" data-k="9">9</button>
+          <button type="button" class="key" data-k=".">.</button>
+          <button type="button" class="key" data-k="0">0</button>
+          <button type="button" class="key key-del" data-k="del" id="keyDel">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6H9.5L3.5 12l6 6H20z"/><path d="M12.5 9.5l4 5M16.5 9.5l-4 5"/></svg>
+          </button>
+        </div>
+        <button type="button" class="save-btn" id="saveBtn">保存</button>
+      </div>
+    </section>
+
+    <!-- ========== 明细 ========== -->
+    <section class="view view-list" id="view-list" data-view="list" hidden>
+      <div class="month-bar">
+        <button type="button" class="mnav" data-mstep="-1" aria-label="上个月">‹</button>
+        <div class="month-label" id="listMonthLabel">2026年11月</div>
+        <button type="button" class="mnav" data-mstep="1" aria-label="下个月">›</button>
+        <div class="month-side">
+          <em id="listMonthTotal">¥0.00</em>
+          <span id="listMonthCount">0 笔</span>
+        </div>
+      </div>
+      <div class="scroll-body" id="listBody"></div>
+    </section>
+
+    <!-- ========== 统计 ========== -->
+    <section class="view view-stats" id="view-stats" data-view="stats" hidden>
+      <div class="month-bar">
+        <button type="button" class="mnav" data-mstep="-1" aria-label="上个月">‹</button>
+        <div class="month-label" id="statsMonthLabel">2026年11月</div>
+        <button type="button" class="mnav" data-mstep="1" aria-label="下个月">›</button>
+        <div class="month-side"><span id="statsMonthHint">本月</span></div>
+      </div>
+      <div class="scroll-body" id="statsBody"></div>
+    </section>
+
+    <!-- ========== 设置 ========== -->
+    <section class="view view-settings" id="view-settings" data-view="settings" hidden>
+      <div class="scroll-body" id="settingsBody"></div>
+    </section>
+
+  </main>
+
+  <nav class="tabbar" id="tabbar">
+    <button type="button" class="tab is-active" data-tab="add">
+      <svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>
+      <span>记账</span>
+    </button>
+    <button type="button" class="tab" data-tab="list">
+      <svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 7h12M8 12h12M8 17h12"/><circle cx="4" cy="7" r="1.2" fill="currentColor" stroke="none"/><circle cx="4" cy="12" r="1.2" fill="currentColor" stroke="none"/><circle cx="4" cy="17" r="1.2" fill="currentColor" stroke="none"/></svg>
+      <span>明细</span>
+    </button>
+    <button type="button" class="tab" data-tab="stats">
+      <svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 20V11M12 20V5M19 20v-6"/></svg>
+      <span>统计</span>
+    </button>
+    <button type="button" class="tab" data-tab="settings">
+      <svg viewBox="0 0 24 24" width="23" height="23" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 7h10M18 7h2M4 12h4M12 12h8M4 17h12M20 17h0"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="17" r="2"/></svg>
+      <span>设置</span>
+    </button>
+  </nav>
+
+</div>
+
+<div class="toast" id="toast" hidden>
+  <span id="toastText"></span>
+  <button type="button" class="toast-act" id="toastAct" hidden>撤销</button>
+</div>
+
+<div class="sheet-mask" id="sheetMask" hidden></div>
+<div class="sheet" id="sheet" hidden>
+  <div class="sheet-head">
+    <div class="sheet-title" id="sheetTitle">标题</div>
+    <button type="button" class="sheet-close" id="sheetClose" aria-label="关闭">关闭</button>
+  </div>
+  <div class="sheet-body" id="sheetBody"></div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
