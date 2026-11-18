@@ -1,6 +1,6 @@
 /* Service Worker：预缓存 + 版本淘汰
    HTML 走 network-first（3 秒超时回落），静态资源走 cache-first。 */
-var VERSION = '1.0.0';
+var VERSION = '1.0.1';
 var CACHE = 'ledger-v' + VERSION;
 var ASSETS = [
   './',
