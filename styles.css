@@ -314,6 +314,81 @@ html[data-theme="dark"] .banner-warn { color: #ffb340; }
   scrollbar-width: none;
 }
 
+.channel-wrap {
+  margin: 0;
+}
+
+/* chip 行前面的说明文字，不参与收缩 */
+.channel-tag {
+  flex: 0 0 auto;
+  align-self: center;
+  font-size: 11.5px;
+  color: #00877c;
+  padding-right: 2px;
+  white-space: nowrap;
+}
+
+html[data-theme="dark"] .channel-tag { color: #4fd8cb; }
+
+@media (prefers-color-scheme: dark) {
+  html:not([data-theme="light"]) .channel-tag { color: #4fd8cb; }
+}
+
+.channel-wrap .chip {
+  background: var(--card);
+  border-color: rgba(0, 184, 169, 0.35);
+  padding: 6px 11px;
+  font-size: 12.5px;
+}
+
+.channel-wrap .chip.is-on {
+  background: #00b8a9;
+  border-color: #00b8a9;
+  color: #fff;
+}
+
+/* 统计页：月付按渠道 */
+.ch-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13.5px;
+}
+
+.ch-row:last-child { border-bottom: 0; }
+
+.ch-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ch-amt { font-variant-numeric: tabular-nums; font-weight: 600; flex: 0 0 auto; }
+
+.ch-pct { font-size: 11px; color: var(--sub); font-weight: 400; margin-left: 8px; }
+
+.ch-bar {
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(0, 184, 169, 0.16);
+  overflow: hidden;
+  margin: -4px 0 8px;
+}
+
+.ch-bar i {
+  display: block;
+  height: 100%;
+  background: #00b8a9;
+  border-radius: 999px;
+}
+
 .chip-row::-webkit-scrollbar { display: none; }
 
 .chip {

@@ -9,7 +9,7 @@
    =========================================================== */
 'use strict';
 
-var APP_VERSION = '1.0.2';
+var APP_VERSION = '1.1.0';
 
 /* ---------------- 常量 ---------------- */
 var METHODS = [
@@ -20,6 +20,17 @@ var METHODS = [
 ];
 var METHOD_NAME = {};
 METHODS.forEach(function (m) { METHOD_NAME[m.id] = m.name; });
+
+/* 月付还款渠道：只在分类选「月付」时出现，记为 expense.channel */
+var CHANNELS = [
+  { id: 'huabei',  name: '花呗',     icon: '🔵' },
+  { id: 'douyin',  name: '抖音月付', icon: '🎵' },
+  { id: 'meituan', name: '美团月付', icon: '🟡' },
+  { id: 'credit',  name: '信用卡',   icon: '💳' },
+  { id: 'other',   name: '其他',     icon: '📦' }
+];
+var CHANNEL_NAME = {};
+CHANNELS.forEach(function (c) { CHANNEL_NAME[c.id] = c.name; });
 
 var DEFAULT_CATEGORIES = [
   { id: 'food',      name: '餐饮',   icon: '🍜', color: '#FF9F0A', sort: 1,  archived: false },
@@ -183,7 +194,7 @@ async function loadAll() {
   cache.meta = {};
   metas.forEach(function (m) { cache.meta[m.key] = m.value; });
 
-  cache.settings = Object.assign({ theme: 'auto', lastMethod: 'wechat', lastBackupAt: 0 }, cache.meta.settings || {});
+  cache.settings = Object.assign({ theme: 'auto', lastMethod: 'wechat', lastChannel: null, lastBackupAt: 0 }, cache.meta.settings || {});
 }
 
 async function saveSettings() { await dbPut('meta', { key: 'settings', value: cache.settings }); }
@@ -278,7 +289,7 @@ async function runRules() {
 var state = {
   tab: 'add',
   month: mstr(new Date()),
-  draft: { amount: '', categoryId: null, method: 'wechat', note: '', date: dstr(new Date()), editingId: null },
+  draft: { amount: '', categoryId: null, channel: null, method: 'wechat', note: '', date: dstr(new Date()), editingId: null },
   targetDay: null
 };
 
@@ -408,6 +419,20 @@ function renderAdd() {
     return '<button type="button" class="chip' + (d.method === m.id ? ' is-on' : '') + '" data-method="' + m.id + '">' + m.name + '</button>';
   }).join('');
 
+  /* 月付时用「还款渠道」替代「支付方式」：还花呗只能从卡/余额扣，支付方式没有参考价值，
+     两者同时出现会把内容撑出屏幕 */
+  var chWrap = $('#channelWrap');
+  var isMonthly = d.categoryId === 'monthly';
+  $('#methodRow').hidden = isMonthly;
+  if (isMonthly) {
+    chWrap.hidden = false;
+    $('#channelRow').innerHTML = '<span class="channel-tag">还款渠道</span>' + CHANNELS.map(function (c) {
+      return '<button type="button" class="chip' + (d.channel === c.id ? ' is-on' : '') + '" data-channel="' + c.id + '">' + c.name + '</button>';
+    }).join('');
+  } else {
+    chWrap.hidden = true;
+  }
+
   var noteBtn = $('#noteBtn');
   var noteText = $('#noteText');
   if (d.note) {
@@ -448,6 +473,18 @@ $('#catGrid').addEventListener('click', function (e) {
   if (!b) return;
   state.draft.categoryId = b.dataset.cat;
   $$('.cat-item', $('#catGrid')).forEach(function (x) { x.classList.toggle('is-on', x.dataset.cat === b.dataset.cat); });
+  /* 切到月付时，没选过渠道就带上次用过的 */
+  if (state.draft.categoryId === 'monthly' && !state.draft.channel) {
+    state.draft.channel = cache.settings.lastChannel || null;
+  }
+  renderAdd();
+});
+
+$('#channelRow').addEventListener('click', function (e) {
+  var b = e.target.closest('[data-channel]');
+  if (!b) return;
+  state.draft.channel = b.dataset.channel;
+  $$('.chip', $('#channelRow')).forEach(function (x) { x.classList.toggle('is-on', x.dataset.channel === b.dataset.channel); });
 });
 
 $('#methodRow').addEventListener('click', function (e) {
@@ -584,9 +621,11 @@ async function saveEntry() {
   var cents = toCents(d.amount);
   if (!cents) { shakeSave(); toast('先输入金额'); return; }
   if (!d.categoryId) { toast('先选一个分类'); return; }
+  if (d.categoryId === 'monthly' && !d.channel) { toast('选一下是哪个渠道还的'); return; }
 
   var now = Date.now();
   var month = d.date.slice(0, 7);
+  var channel = d.categoryId === 'monthly' ? d.channel : null;
   rememberMethod();
 
   if (d.editingId) {
@@ -596,6 +635,7 @@ async function saveEntry() {
     var rec = Object.assign({}, old, {
       amountCents: cents,
       categoryId: d.categoryId,
+      channel: channel,
       method: d.method,
       date: d.date,
       month: month,
@@ -618,6 +658,7 @@ async function saveEntry() {
     id: id,
     amountCents: cents,
     categoryId: d.categoryId,
+    channel: channel,
     method: d.method,
     date: d.date,
     month: month,
@@ -634,7 +675,8 @@ async function saveEntry() {
   renderAll();
   checkBackupReminder();
 
-  toast('已记 ' + money(cents) + ' · ' + catName(item.categoryId), '撤销', async function () {
+  var label = catName(item.categoryId) + (channel ? ' · ' + (CHANNEL_NAME[channel] || '') : '');
+  toast('已记 ' + money(cents) + ' · ' + label, '撤销', async function () {
     await dbDel('expenses', id);
     await loadAll();
     renderAll();
@@ -656,7 +698,14 @@ $('#cancelEditBtn').addEventListener('click', function () {
    =========================================================== */
 function rowHTML(e) {
   var c = catOf(e.categoryId);
-  var sub = [METHOD_NAME[e.method] || '', e.note || ''].filter(Boolean).join(' · ');
+  var parts = [];
+  if (e.categoryId === 'monthly') {
+    parts.push(e.channel ? (CHANNEL_NAME[e.channel] || '其他') : '未分渠道');
+  } else if (METHOD_NAME[e.method]) {
+    parts.push(METHOD_NAME[e.method]);
+  }
+  if (e.note) parts.push(e.note);
+  var sub = parts.join(' · ');
   return '<div class="row-wrap" data-id="' + e.id + '">' +
     '<button type="button" class="row-del" data-del="' + e.id + '">删除</button>' +
     '<div class="exp-row" data-row="' + e.id + '">' +
@@ -826,6 +875,7 @@ function openEdit(id) {
   d.editingId = rec.id;
   d.date = rec.date;
   d.categoryId = rec.categoryId;
+  d.channel = rec.channel || null;
   d.method = rec.method || 'wechat';
   d.note = rec.note || '';
   d.amount = (rec.amountCents / 100).toFixed(2).replace(/\.00$/, '');
@@ -950,6 +1000,60 @@ function renderStats() {
     html += emptyHTML('📊', '这个月还没有数据', '记几笔之后这里会出现图表');
     $('#statsBody').innerHTML = html;
     return;
+  }
+
+  /* 月付还款：按渠道拆开，月初最关心的就是这张卡 */
+  var mPay = items.filter(function (e) { return e.categoryId === 'monthly'; });
+  if (mPay.length) {
+    var mPrev = cache.expenses.filter(function (e) {
+      return e.month === addMonths(ym, -1) && e.categoryId === 'monthly';
+    });
+    var byCh = {};
+    var chOrder = [];
+    mPay.forEach(function (e) {
+      var k = e.channel || 'none';
+      if (!byCh[k]) { byCh[k] = 0; chOrder.push(k); }
+      byCh[k] += e.amountCents;
+    });
+    var prevByCh = {};
+    mPrev.forEach(function (e) {
+      var k = e.channel || 'none';
+      prevByCh[k] = (prevByCh[k] || 0) + e.amountCents;
+    });
+    var mTotal = mPay.reduce(function (s, e) { return s + e.amountCents; }, 0);
+    var mPrevTotal = mPrev.reduce(function (s, e) { return s + e.amountCents; }, 0);
+
+    var mHead = mTotal > 0 ? '合计 ' + money(mTotal) : '';
+    var mCmp = '';
+    if (mPrevTotal > 0) {
+      var dp = Math.round(((mTotal - mPrevTotal) / mPrevTotal) * 100);
+      var dcls = dp > 0 ? 'up' : (dp < 0 ? 'down' : 'flat');
+      mCmp = '<span class="' + dcls + '">' + (dp > 0 ? '↑' : (dp < 0 ? '↓' : '—')) + ' ' + Math.abs(dp) + '%<span style="color:var(--sub);font-weight:400"> 较上月</span></span>';
+    }
+
+    var rows = chOrder.sort(function (a, b) { return byCh[b] - byCh[a]; }).map(function (k) {
+      var nm = k === 'none' ? '未分渠道' : (CHANNEL_NAME[k] || '其他');
+      var pct = mTotal ? (byCh[k] / mTotal) * 100 : 0;
+      var delta = '';
+      if (prevByCh[k] !== undefined) {
+        var dd = byCh[k] - prevByCh[k];
+        if (dd !== 0) {
+          delta = '<span class="' + (dd > 0 ? 'up' : 'down') + '">' + (dd > 0 ? '↑' : '↓') + money(Math.abs(dd)) + '</span>';
+        }
+      }
+      return '<div class="ch-row">' +
+        '<span class="ch-name">' + esc(nm) + '</span>' +
+        '<span><span class="ch-amt">' + money(byCh[k]) + '</span>' +
+        '<span class="ch-pct">' + Math.round(pct) + '%</span>' +
+        (delta ? '<span class="ch-pct">' + delta + '</span>' : '') + '</span>' +
+        '</div>' +
+        '<div class="ch-bar"><i style="width:' + pct.toFixed(1) + '%"></i></div>';
+    }).join('');
+
+    html += '<div class="card">' +
+      '<div class="card-head"><span class="card-title">月付还款 · 按渠道</span><span class="card-sub">' + mHead + '</span></div>' +
+      (mCmp ? '<div class="budget-line" style="margin:-4px 0 6px"><span></span><span>' + mCmp + '</span></div>' : '') +
+      rows + '</div>';
   }
 
   /* 分类汇总 */
@@ -1571,6 +1675,9 @@ function runSelfCheck() {
     if (e.month && e.date && e.month !== e.date.slice(0, 7)) {
       issues.push({ lv: 'err', t: '月份与日期不一致：' + e.date + ' 记在 ' + e.month });
     }
+    if (e.categoryId === 'monthly' && !e.channel && !e.deletedAt) {
+      issues.push({ lv: 'warn', t: '月付记录没标渠道：' + e.date + ' ' + money(e.amountCents) + '，统计里会归到「未分渠道」' });
+    }
   });
 
   var dup = {};
@@ -1725,9 +1832,16 @@ async function boot() {
 
 /* 记住上次支付方式 */
 async function rememberMethod() {
-  if (cache.settings.lastMethod === state.draft.method) return;
-  cache.settings.lastMethod = state.draft.method;
-  await saveSettings();
+  var changed = false;
+  if (cache.settings.lastMethod !== state.draft.method) {
+    cache.settings.lastMethod = state.draft.method;
+    changed = true;
+  }
+  if (state.draft.channel && cache.settings.lastChannel !== state.draft.channel) {
+    cache.settings.lastChannel = state.draft.channel;
+    changed = true;
+  }
+  if (changed) await saveSettings();
 }
 
 boot();
