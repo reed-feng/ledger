@@ -9,7 +9,7 @@
    =========================================================== */
 'use strict';
 
-var APP_VERSION = '1.0.1';
+var APP_VERSION = '1.0.2';
 
 /* ---------------- 常量 ---------------- */
 var METHODS = [
@@ -30,7 +30,7 @@ var DEFAULT_CATEGORIES = [
   { id: 'telecom',   name: '通讯',   icon: '📱', color: '#5E5CE6', sort: 6,  archived: false },
   { id: 'medical',   name: '医疗',   icon: '💊', color: '#64D2FF', sort: 7,  archived: false },
   { id: 'fun',       name: '娱乐',   icon: '🎮', color: '#BF5AF2', sort: 8,  archived: false },
-  { id: 'gift',      name: '人情',   icon: '🎁', color: '#FF6482', sort: 9,  archived: false },
+  { id: 'monthly',   name: '月付',   icon: '💳', color: '#00B8A9', sort: 9,  archived: false },
   { id: 'other',     name: '其他',   icon: '📦', color: '#8E8E93', sort: 10, archived: false }
 ];
 
@@ -196,6 +196,34 @@ async function seedIfNeeded() {
   }
   if (cache.meta.schemaVersion === undefined) {
     await dbPut('meta', { key: 'schemaVersion', value: 1 });
+  }
+}
+
+/* ---------------- 数据迁移 ---------------- */
+/* v2：新增「月付」分类，移除不常用的「人情」。
+   有人情历史记录时只停用不删除，否则老账会变成「未分类」。 */
+async function migrate() {
+  var ver = Number(cache.meta.schemaVersion || 1);
+
+  if (ver < 2) {
+    var hasMonthly = cache.categories.some(function (c) { return c.id === 'monthly'; });
+    if (!hasMonthly) {
+      await dbPut('categories', { id: 'monthly', name: '月付', icon: '💳', color: '#00B8A9', sort: 9, archived: false });
+    }
+
+    var gift = null;
+    cache.categories.forEach(function (c) { if (c.id === 'gift') gift = c; });
+    if (gift) {
+      var used = cache.raw.some(function (e) { return e.categoryId === 'gift'; });
+      if (used) await dbPut('categories', Object.assign({}, gift, { archived: true, sort: 99 }));
+      else await dbDel('categories', 'gift');
+    }
+
+    var other = null;
+    cache.categories.forEach(function (c) { if (c.id === 'other') other = c; });
+    if (other && other.sort !== 10) await dbPut('categories', Object.assign({}, other, { sort: 10 }));
+
+    await dbPut('meta', { key: 'schemaVersion', value: 2 });
   }
 }
 
@@ -380,8 +408,15 @@ function renderAdd() {
     return '<button type="button" class="chip' + (d.method === m.id ? ' is-on' : '') + '" data-method="' + m.id + '">' + m.name + '</button>';
   }).join('');
 
-  var note = $('#noteInput');
-  if (document.activeElement !== note && note.value !== d.note) note.value = d.note;
+  var noteBtn = $('#noteBtn');
+  var noteText = $('#noteText');
+  if (d.note) {
+    noteText.textContent = d.note;
+    noteBtn.classList.add('has-text');
+  } else {
+    noteText.textContent = '备注（可选）';
+    noteBtn.classList.remove('has-text');
+  }
 
   $('#saveBtn').textContent = d.editingId ? '保存修改' : '保存';
   $('#cancelEditBtn').hidden = !d.editingId;
@@ -422,8 +457,46 @@ $('#methodRow').addEventListener('click', function (e) {
   $$('.chip', $('#methodRow')).forEach(function (x) { x.classList.toggle('is-on', x.dataset.method === b.dataset.method); });
 });
 
-$('#noteInput').addEventListener('input', function () { state.draft.note = this.value; });
-$('#noteInput').addEventListener('keydown', function (e) { if (e.key === 'Enter') this.blur(); });
+/* 备注：走弹层输入，主界面永不因系统键盘位移 */
+$('#noteBtn').addEventListener('click', function () {
+  var d = state.draft;
+  openSheet('备注',
+    '<div class="field"><textarea class="note-area" id="noteArea" maxlength="40" enterkeyhint="done" ' +
+    'placeholder="补充说明，比如「和谁、买了什么」，最多 40 字">' + esc(d.note) + '</textarea></div>' +
+    '<div class="field-hint"><span id="noteCount">0</span>/40</div>' +
+    '<div class="sheet-actions">' +
+    '<button type="button" class="btn-primary" data-act="save">确定</button>' +
+    (d.note ? '<button type="button" class="btn-plain" data-act="clear">清空备注</button>' : '') +
+    '</div>',
+    {
+      save: function () {
+        var v = ($('#noteArea').value || '').trim();
+        var ta = $('#noteArea');
+        if (ta) ta.blur();
+        state.draft.note = v;
+        closeSheet();
+        renderAdd();
+      },
+      clear: function () {
+        var ta = $('#noteArea');
+        if (ta) ta.blur();
+        state.draft.note = '';
+        closeSheet();
+        renderAdd();
+      }
+    });
+
+  setTimeout(function () {
+    var ta = $('#noteArea');
+    if (!ta) return;
+    ta.focus();
+    ta.setSelectionRange(ta.value.length, ta.value.length);
+    var cnt = $('#noteCount');
+    var upd = function () { if (cnt) cnt.textContent = ta.value.length; };
+    ta.addEventListener('input', upd);
+    upd();
+  }, 320);
+});
 
 /* 键盘 */
 function inputKey(k) {
@@ -1342,7 +1415,7 @@ function clockStr() {
 function backupText() {
   return JSON.stringify({
     app: 'ledger',
-    schemaVersion: 1,
+    schemaVersion: 2,
     appVersion: APP_VERSION,
     exportedAt: dstr(new Date()) + ' ' + clockStr(),
     categories: cache.categories,
@@ -1557,11 +1630,15 @@ function openWipeSheet() {
 /* ===========================================================
    启动
    =========================================================== */
+/* 只算系统键盘占掉的高度，写进 --kb 给弹层用。
+   主界面（.app）是 position:fixed，高度恒为 100dvh，不参与键盘位移——
+   否则 iOS 聚焦输入框时自己也会滚动页面，两个位移叠加会把界面顶出屏幕。 */
 function syncViewport() {
   var vv = window.visualViewport;
   if (!vv) return;
-  var h = Math.round(vv.height);
-  if (h > 200) document.documentElement.style.setProperty('--app-h', h + 'px');
+  var gap = Math.round(window.innerHeight - vv.height - vv.offsetTop);
+  var kb = gap > 90 ? gap : 0;
+  document.documentElement.style.setProperty('--kb', kb + 'px');
 }
 
 function checkBackupReminder() {
@@ -1621,6 +1698,8 @@ async function boot() {
 
   await loadAll();
   await seedIfNeeded();
+  await loadAll();
+  await migrate();
   await loadAll();
   await runRules();
   await loadAll();
